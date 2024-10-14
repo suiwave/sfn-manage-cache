@@ -1,4 +1,11 @@
 #################################
+## プロジェクト独自ignore
+#################################
+# lambda用に作成されたzipは無視する
+operate-redis.zip
+operate-posgresql.zip
+
+#################################
 ## Terraform用ignore
 #################################
 # Local .terraform directories

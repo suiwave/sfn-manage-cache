@@ -60,27 +60,6 @@ module "intra_vpc" {
 }
 
 ############################################################################
-## ElastieCache SSO Redis
-## valkeyはドキュメント少なそうだったので、とりあえずRedisを選択
-## クラスタなどは不要なので最小構成で作成する
-############################################################################
-# resource "aws_elasticache_subnet_group" "redis" {
-#   name       = "redis-cache-intra-subnet"
-#   subnet_ids = module.intra_vpc.intra_subnets
-# }
-
-# resource "aws_elasticache_cluster" "redis" {
-#   cluster_id           = "${local.project}-cluster-example"
-#   engine               = "redis"
-#   node_type            = "cache.t2.medium" # aws_elasticache_cluster.redis: Creation complete after 5m17s
-#   num_cache_nodes      = 1
-#   parameter_group_name = "default.redis7"
-#   engine_version       = "7.1"
-#   port                 = 6379
-#   subnet_group_name    = aws_elasticache_subnet_group.redis.name
-# }
-
-############################################################################
 ## Lambda 2つ作る
 ## 共通で参照するリソース群を定義
 ############################################################################
@@ -117,6 +96,10 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc" {
 resource "aws_security_group" "lambda_vpc" {
   name   = "${local.project}-lambda-vpc-sg"
   vpc_id = module.intra_vpc.vpc_id
+  
+  tags = {
+    name = "${local.project}-lambda-vpc-sg"
+  }
 }
 
 resource "aws_security_group_rule" "lambda_vpc" {
@@ -166,8 +149,54 @@ resource "aws_lambda_function" "redis" {
     security_group_ids = [aws_security_group.lambda_vpc.id]
   }
 
+  environment {
+    variables = {
+      REDIS_ENDPOINT = aws_elasticache_cluster.redis.cache_nodes[0].address
+    }
+  }
+
   # zip内の変更は無視する
   lifecycle {
     ignore_changes = [filename, source_code_hash]
   }
+}
+
+############################################################################
+## ElastieCache SSO Redis
+## valkeyはドキュメント少なそうだったので、とりあえずRedisを選択
+## クラスタなどは不要なので最小構成で作成する
+############################################################################
+resource "aws_elasticache_subnet_group" "redis" {
+  name       = "redis-cache-intra-subnet"
+  subnet_ids = module.intra_vpc.intra_subnets
+}
+
+resource "aws_security_group" "redis" {
+  name   = "${local.project}-redis-sg"
+  vpc_id = module.intra_vpc.vpc_id
+
+  tags = {
+    name = "${local.project}-redis-sg"
+  }
+}
+
+resource "aws_security_group_rule" "redis" {
+  security_group_id = aws_security_group.redis.id
+  type              = "ingress"
+  from_port         = 6379
+  to_port           = 6379
+  protocol          = "TCP"
+  source_security_group_id = aws_security_group.lambda_vpc.id
+}
+
+resource "aws_elasticache_cluster" "redis" {
+  cluster_id           = "${local.project}-cluster-example"
+  engine               = "redis"
+  node_type            = "cache.t2.medium" # aws_elasticache_cluster.redis: Creation complete after 5m17s
+  num_cache_nodes      = 1
+  parameter_group_name = "default.redis7"
+  engine_version       = "7.1"
+  port                 = 6379
+  subnet_group_name    = aws_elasticache_subnet_group.redis.name
+  security_group_ids   = [aws_security_group.redis.id]
 }
