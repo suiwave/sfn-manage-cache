@@ -40,6 +40,12 @@ locals{
 
   lambda_postgresql = "operate-postgresql"
   lambda_postgresql_path = "${local.lambda_base_path}/${local.lambda_postgresql}"
+
+  db_count = 0
+
+  db_username = "testuser"
+  db_password = "password"
+  db_name     = "test"
 }
 
 ############################################################################
@@ -151,7 +157,9 @@ resource "aws_lambda_function" "redis" {
 
   environment {
     variables = {
-      REDIS_ENDPOINT = "aws_elasticache_cluster.redis.cache_nodes[0].address"
+      # redisのaddressが評価できた場合、設定。countが0の場合はエラーになるので、tryでcatchしてnullを返却する。
+      # coalesceはnullの場合第二引数をとる。冗長なcatchな気がする
+      REDIS_HOST = coalesce(try(aws_elasticache_cluster.redis[0].cache_nodes[0].address,null),"DUMMY_REDIS_HOST")
     }
   }
 
@@ -201,10 +209,12 @@ resource "aws_lambda_function" "postgresql" {
 
   environment {
     variables = {
-      DB_USER = "DB_USER"
-      RDS_ENDPOINT = "RDS_ENDPOINT"
-      DB_DATABASE = "DB_DATABASE"
-      DB_PASSWORD = "DB_PASSWORD"
+      # rdsのaddressが評価できた場合、設定。countが0の場合はエラーになるので、tryでcatchしてnullを返却する。
+      # coalesceはnullの場合第二引数をとる。冗長なcatchな気がする
+      DB_HOST = coalesce(try(aws_db_instance.postgresql[0].address,null),"DUMMY_HOST") # port不要なのでaddressを取得する。endpointだとportもついてくる
+      DB_USER = coalesce(try(aws_db_instance.postgresql[0].username,null),"DUMMY_DB_USER")
+      DB_PASSWORD = coalesce(try(aws_db_instance.postgresql[0].password,null),"DUMMY_DB_PASSWORD") # 簡単のため今回はこの方法で参照するが、tfstateに記載されるので、本来はsecret managerから取得するべき
+      DB_DATABASE = coalesce(try(aws_db_instance.postgresql[0].db_name,null),"DUMMY_DB_DATABASE")
     }
   }
 
@@ -219,40 +229,43 @@ resource "aws_lambda_function" "postgresql" {
 ## valkeyはドキュメント少なそうだったので、とりあえずRedisを選択
 ## クラスタなどは不要なので最小構成で作成する
 ############################################################################
-# resource "aws_elasticache_subnet_group" "redis" {
-#   name       = "redis-cache-intra-subnet"
-#   subnet_ids = module.intra_vpc.intra_subnets
-# }
+resource "aws_elasticache_subnet_group" "redis" {
+  name       = "redis-cache-intra-subnet"
+  subnet_ids = module.intra_vpc.intra_subnets
+}
 
-# resource "aws_security_group" "redis" {
-#   name   = "${local.project}-redis-sg"
-#   vpc_id = module.intra_vpc.vpc_id
+resource "aws_security_group" "redis" {
+  name   = "${local.project}-redis-sg"
+  vpc_id = module.intra_vpc.vpc_id
 
-#   tags = {
-#     Name = "${local.project}-redis-sg"
-#   }
-# }
+  tags = {
+    Name = "${local.project}-redis-sg"
+  }
+}
 
-# resource "aws_security_group_rule" "redis" {
-#   security_group_id = aws_security_group.redis.id
-#   type              = "ingress"
-#   from_port         = 6379
-#   to_port           = 6379
-#   protocol          = "TCP"
-#   source_security_group_id = aws_security_group.lambda_vpc.id
-# }
+resource "aws_security_group_rule" "redis" {
+  security_group_id = aws_security_group.redis.id
+  type              = "ingress"
+  from_port         = 6379
+  to_port           = 6379
+  protocol          = "TCP"
+  source_security_group_id = aws_security_group.lambda_vpc.id
+}
 
-# resource "aws_elasticache_cluster" "redis" {
-#   cluster_id           = "${local.project}-cluster-example"
-#   engine               = "redis"
-#   node_type            = "cache.t2.medium" # aws_elasticache_cluster.redis: Creation complete after 5m17s
-#   num_cache_nodes      = 1
-#   parameter_group_name = "default.redis7"
-#   engine_version       = "7.1"
-#   port                 = 6379
-#   subnet_group_name    = aws_elasticache_subnet_group.redis.name
-#   security_group_ids   = [aws_security_group.redis.id]
-# }
+resource "aws_elasticache_cluster" "redis" {
+  # 節約のため不要時は削除
+  count = local.db_count
+
+  cluster_id           = "${local.project}-cluster-example"
+  engine               = "redis"
+  node_type            = "cache.t2.medium" # aws_elasticache_cluster.redis: Creation complete after 5m17s
+  num_cache_nodes      = 1
+  parameter_group_name = "default.redis7"
+  engine_version       = "7.1"
+  port                 = 6379
+  subnet_group_name    = aws_elasticache_subnet_group.redis.name
+  security_group_ids   = [aws_security_group.redis.id]
+}
 
 ############################################################################
 ## RDS postgresql
@@ -286,62 +299,62 @@ resource "aws_security_group_rule" "postgresql" {
   source_security_group_id = aws_security_group.lambda_vpc.id
 }
 
-# resource "aws_db_instance" "postgresql" {
-#   #################################################
-#   ## インスタンス基本設定
-#   #################################################
-#   identifier             = "${local.project}-rds-postgresql"
-#   engine                 = "mysql"
-#   engine_version         = "8.0"
-#   instance_class         = "db.t3.micro"
-#   vpc_security_group_ids = [aws_security_group.postgresql.id]
+resource "aws_db_instance" "postgresql" {
+  # 節約のため不要時は削除
+  count = local.db_count
 
-#   #################################################
-#   ## ストレージ設定
-#   #################################################
-#   storage_type      = "gp2"
-#   storage_encrypted = false
-#   # storage_encrypted = true
-#   # kms_key_id = var.instance_encrypt_key_id
-#   # 割り当てストレージ（GB）
-#   allocated_storage = 10
-#   # ストレージ自動スケーリング上限（GB）
-#   max_allocated_storage = 30
+  #################################################
+  ## インスタンス基本設定
+  #################################################
+  identifier             = "${local.project}-rds-postgresql"
+  engine                 = "postgres"
+  engine_version         = "16.3" # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.DBVersions.html
+  instance_class         = "db.t3.micro" # aws_db_instance.postgresql: Creation complete after 4m47s 
+  vpc_security_group_ids = [aws_security_group.postgresql.id]
 
-#   #################################################
-#   ## ログイン情報
-#   #################################################
-#   username = "admin"
-#   password = "itou_kenji_primal_db"
-#   port     = 3306
+  #################################################
+  ## DBアプリ設定
+  #################################################
+  db_name = local.db_name
 
-#   #################################################
-#   ## ネットワーク
-#   #################################################
-#   publicly_accessible  = false
-#   db_subnet_group_name = aws_db_subnet_group.main.name
-#   multi_az             = true
+  #################################################
+  ## ストレージ設定
+  #################################################
+  storage_type      = "gp2"
+  storage_encrypted = false
+  allocated_storage = 10
+  # ストレージ自動スケーリング上限（GB）
+  max_allocated_storage = 30
 
-#   #################################################
-#   ## DBインスタンス管理
-#   #################################################
-#   backup_window = "09:10-09:40"
-#   # アップデートの実行を次のメンテナンスウィンドウまで待機
-#   apply_immediately          = false
-#   maintenance_window         = "mon:10:10-mon:10:40"
-#   auto_minor_version_upgrade = false
+  #################################################
+  ## ログイン情報
+  ## adminは基本的にアプリに使用しないが、簡単のため
+  #################################################
+  username = local.db_username
+  password = local.db_password
+  port     = 5432
 
-#   #################################################
-#   ## 削除保護
-#   #################################################
-#   deletion_protection      = false
-#   skip_final_snapshot      = true
-#   delete_automated_backups = false
-#   backup_retention_period  = 0
+  #################################################
+  ## ネットワーク
+  #################################################
+  publicly_accessible  = false
+  db_subnet_group_name = aws_db_subnet_group.postgresql.name
+  multi_az             = false
 
-#   #################################################
-#   ## DBソフト設定
-#   #################################################
-#   parameter_group_name = aws_db_parameter_group.main.name
-#   option_group_name    = aws_db_option_group.main.name
-# }
+  #################################################
+  ## DBインスタンス管理
+  #################################################
+  backup_window = "09:10-09:40"
+  # アップデートの実行を次のメンテナンスウィンドウまで待機
+  apply_immediately          = false
+  maintenance_window         = "mon:10:10-mon:10:40"
+  auto_minor_version_upgrade = false
+
+  #################################################
+  ## 削除保護
+  #################################################
+  deletion_protection      = false
+  skip_final_snapshot      = true
+  delete_automated_backups = false
+  backup_retention_period  = 0
+}

@@ -2,7 +2,7 @@ import { Redis } from "ioredis"
 
 // ElastiCacheの接続情報
 const redisConfig = {
-    host: process.env.REDIS_ENDPOINT,
+    host: process.env.REDIS_HOST,
     port: 6379,
 };
 
@@ -10,7 +10,7 @@ const redisClient = new Redis(redisConfig);
 
 export const handler = async (event, context) => {
     console.log("========================================");
-    console.log(process.env.REDIS_ENDPOINT);
+    console.log(process.env.REDIS_HOST);
     console.log("========================================");
     const res = await redisClient.set("test", "asfdaaaaa")
     console.log(res)
