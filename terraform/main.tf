@@ -98,7 +98,7 @@ resource "aws_security_group" "lambda_vpc" {
   vpc_id = module.intra_vpc.vpc_id
   
   tags = {
-    name = "${local.project}-lambda-vpc-sg"
+    Name = "${local.project}-lambda-vpc-sg"
   }
 }
 
@@ -229,7 +229,7 @@ resource "aws_lambda_function" "postgresql" {
 #   vpc_id = module.intra_vpc.vpc_id
 
 #   tags = {
-#     name = "${local.project}-redis-sg"
+#     Name = "${local.project}-redis-sg"
 #   }
 # }
 
@@ -252,4 +252,96 @@ resource "aws_lambda_function" "postgresql" {
 #   port                 = 6379
 #   subnet_group_name    = aws_elasticache_subnet_group.redis.name
 #   security_group_ids   = [aws_security_group.redis.id]
+# }
+
+############################################################################
+## RDS postgresql
+## エンジンはなんでもいいので、なんとなくpostgresql
+## クラスタなどは不要なので最小構成で作成する
+############################################################################
+resource "aws_db_subnet_group" "postgresql" {
+  name       = "${local.project}-intra-subnet"
+  subnet_ids = module.intra_vpc.intra_subnets
+
+  tags = {
+    Name = "${local.project}-intra-subnet"
+  }
+}
+
+resource "aws_security_group" "postgresql" {
+  name   = "${local.project}-postgresql-sg"
+  vpc_id = module.intra_vpc.vpc_id
+
+  tags = {
+    Name = "${local.project}-postgresql-sg"
+  }
+}
+
+resource "aws_security_group_rule" "postgresql" {
+  security_group_id = aws_security_group.postgresql.id
+  type              = "ingress"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "TCP"
+  source_security_group_id = aws_security_group.lambda_vpc.id
+}
+
+# resource "aws_db_instance" "postgresql" {
+#   #################################################
+#   ## インスタンス基本設定
+#   #################################################
+#   identifier             = "${local.project}-rds-postgresql"
+#   engine                 = "mysql"
+#   engine_version         = "8.0"
+#   instance_class         = "db.t3.micro"
+#   vpc_security_group_ids = [aws_security_group.postgresql.id]
+
+#   #################################################
+#   ## ストレージ設定
+#   #################################################
+#   storage_type      = "gp2"
+#   storage_encrypted = false
+#   # storage_encrypted = true
+#   # kms_key_id = var.instance_encrypt_key_id
+#   # 割り当てストレージ（GB）
+#   allocated_storage = 10
+#   # ストレージ自動スケーリング上限（GB）
+#   max_allocated_storage = 30
+
+#   #################################################
+#   ## ログイン情報
+#   #################################################
+#   username = "admin"
+#   password = "itou_kenji_primal_db"
+#   port     = 3306
+
+#   #################################################
+#   ## ネットワーク
+#   #################################################
+#   publicly_accessible  = false
+#   db_subnet_group_name = aws_db_subnet_group.main.name
+#   multi_az             = true
+
+#   #################################################
+#   ## DBインスタンス管理
+#   #################################################
+#   backup_window = "09:10-09:40"
+#   # アップデートの実行を次のメンテナンスウィンドウまで待機
+#   apply_immediately          = false
+#   maintenance_window         = "mon:10:10-mon:10:40"
+#   auto_minor_version_upgrade = false
+
+#   #################################################
+#   ## 削除保護
+#   #################################################
+#   deletion_protection      = false
+#   skip_final_snapshot      = true
+#   delete_automated_backups = false
+#   backup_retention_period  = 0
+
+#   #################################################
+#   ## DBソフト設定
+#   #################################################
+#   parameter_group_name = aws_db_parameter_group.main.name
+#   option_group_name    = aws_db_option_group.main.name
 # }
