@@ -3,7 +3,7 @@
 #################################
 # lambda用に作成されたzipは無視する
 operate-redis.zip
-operate-posgresql.zip
+operate-postgresql.zip
 
 #################################
 ## Terraform用ignore
