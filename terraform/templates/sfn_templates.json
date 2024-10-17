@@ -1,0 +1,44 @@
+{
+    "Comment": "A Step Functions workflow to handle null or string from Lambda",
+    "StartAt": "InvokeLambda",
+    "States": {
+        "InvokeLambda": {
+            "Type": "Task",
+            "Resource": "${lambda_arn}:$LATEST",
+            "Next": "CheckCacheIsNullOrString"
+        },
+        "CheckCacheIsNullOrString": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Or": [
+                        {
+                            "Variable": "$.cache",
+                            "IsPresent": false
+                        },
+                        {
+                            "Variable": "$.cache",
+                            "IsNull": true
+                        }
+                    ],
+                    "Next": "HandleNull"
+                },
+                {
+                    "Variable": "$.cache",
+                    "IsNull": false,
+                    "Next": "HandleNotNull"
+                }
+            ]
+        },
+        "HandleNull": {
+            "Type": "Pass",
+            "Result": "Received a Null",
+            "End": true
+        },
+        "HandleNotNull": {
+            "Type": "Pass",
+            "Result": "Received String",
+            "End": true
+        }
+    }
+}

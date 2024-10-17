@@ -13,7 +13,7 @@ terraform {
       version = "~> 5.33.0"
     }
   }
-  
+
   # 簡単な検証なので、ローカルにtfstateを保持する
   backend "local" {
     path = "local.tfstate"
@@ -31,14 +31,14 @@ provider "aws" {
 ############################################################################
 ## localsブロック
 ############################################################################
-locals{
+locals {
   project = "stepfunction-manage-cache"
-  
-  lambda_base_path = "../lambda"
-  lambda_redis = "operate-redis"
+
+  lambda_base_path  = "../lambda"
+  lambda_redis      = "operate-redis"
   lambda_redis_path = "${local.lambda_base_path}/${local.lambda_redis}"
 
-  lambda_postgresql = "operate-postgresql"
+  lambda_postgresql      = "operate-postgresql"
   lambda_postgresql_path = "${local.lambda_base_path}/${local.lambda_postgresql}"
 
   db_count = 0
@@ -60,8 +60,8 @@ module "intra_vpc" {
   name = "${local.project}-intra-vpc"
   cidr = "10.0.1.0/24"
 
-  azs             = ["ap-northeast-1a", "ap-northeast-1c"]
-  intra_subnets = ["10.0.1.0/25", "10.0.1.128/25"]
+  azs                = ["ap-northeast-1a", "ap-northeast-1c"]
+  intra_subnets      = ["10.0.1.0/25", "10.0.1.128/25"]
   enable_nat_gateway = false
 }
 
@@ -71,7 +71,7 @@ module "intra_vpc" {
 ############################################################################
 # lambda用AWSロール
 data "aws_iam_policy" "vpc_access_execution" {
-    arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+  arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 data "aws_iam_policy_document" "assume_lambda" {
@@ -88,7 +88,7 @@ data "aws_iam_policy_document" "assume_lambda" {
 }
 
 resource "aws_iam_role" "lambda_vpc" {
-  name = "${local.project}-lambda-vpc-role"
+  name               = "${local.project}-lambda-vpc-role"
   assume_role_policy = data.aws_iam_policy_document.assume_lambda.json
 }
 
@@ -102,7 +102,7 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc" {
 resource "aws_security_group" "lambda_vpc" {
   name   = "${local.project}-lambda-vpc-sg"
   vpc_id = module.intra_vpc.vpc_id
-  
+
   tags = {
     Name = "${local.project}-lambda-vpc-sg"
   }
@@ -144,7 +144,7 @@ resource "aws_lambda_function" "redis" {
   handler  = "index.handler"
 
   source_code_hash = filebase64sha256(data.archive_file.redis.output_path)
-  
+
   logging_config {
     log_format = "Text"
     log_group  = aws_cloudwatch_log_group.redis.name
@@ -159,7 +159,7 @@ resource "aws_lambda_function" "redis" {
     variables = {
       # redisのaddressが評価できた場合、設定。countが0の場合はエラーになるので、tryでcatchしてnullを返却する。
       # coalesceはnullの場合第二引数をとる。冗長なcatchな気がする
-      REDIS_HOST = coalesce(try(aws_elasticache_cluster.redis[0].cache_nodes[0].address,null),"DUMMY_REDIS_HOST")
+      REDIS_HOST = coalesce(try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, null), "DUMMY_REDIS_HOST")
     }
   }
 
@@ -196,7 +196,7 @@ resource "aws_lambda_function" "postgresql" {
   handler  = "index.handler"
 
   source_code_hash = filebase64sha256(data.archive_file.postgresql.output_path)
-  
+
   logging_config {
     log_format = "Text"
     log_group  = aws_cloudwatch_log_group.postgresql.name
@@ -211,10 +211,10 @@ resource "aws_lambda_function" "postgresql" {
     variables = {
       # rdsのaddressが評価できた場合、設定。countが0の場合はエラーになるので、tryでcatchしてnullを返却する。
       # coalesceはnullの場合第二引数をとる。冗長なcatchな気がする
-      DB_HOST = coalesce(try(aws_db_instance.postgresql[0].address,null),"DUMMY_HOST") # port不要なのでaddressを取得する。endpointだとportもついてくる
-      DB_USER = coalesce(try(aws_db_instance.postgresql[0].username,null),"DUMMY_DB_USER")
-      DB_PASSWORD = coalesce(try(aws_db_instance.postgresql[0].password,null),"DUMMY_DB_PASSWORD") # 簡単のため今回はこの方法で参照するが、tfstateに記載されるので、本来はsecret managerから取得するべき
-      DB_DATABASE = coalesce(try(aws_db_instance.postgresql[0].db_name,null),"DUMMY_DB_DATABASE")
+      DB_HOST     = coalesce(try(aws_db_instance.postgresql[0].address, null), "DUMMY_HOST") # port不要なのでaddressを取得する。endpointだとportもついてくる
+      DB_USER     = coalesce(try(aws_db_instance.postgresql[0].username, null), "DUMMY_DB_USER")
+      DB_PASSWORD = coalesce(try(aws_db_instance.postgresql[0].password, null), "DUMMY_DB_PASSWORD") # 簡単のため今回はこの方法で参照するが、tfstateに記載されるので、本来はsecret managerから取得するべき
+      DB_DATABASE = coalesce(try(aws_db_instance.postgresql[0].db_name, null), "DUMMY_DB_DATABASE")
     }
   }
 
@@ -244,11 +244,11 @@ resource "aws_security_group" "redis" {
 }
 
 resource "aws_security_group_rule" "redis" {
-  security_group_id = aws_security_group.redis.id
-  type              = "ingress"
-  from_port         = 6379
-  to_port           = 6379
-  protocol          = "TCP"
+  security_group_id        = aws_security_group.redis.id
+  type                     = "ingress"
+  from_port                = 6379
+  to_port                  = 6379
+  protocol                 = "TCP"
   source_security_group_id = aws_security_group.lambda_vpc.id
 }
 
@@ -291,11 +291,11 @@ resource "aws_security_group" "postgresql" {
 }
 
 resource "aws_security_group_rule" "postgresql" {
-  security_group_id = aws_security_group.postgresql.id
-  type              = "ingress"
-  from_port         = 5432
-  to_port           = 5432
-  protocol          = "TCP"
+  security_group_id        = aws_security_group.postgresql.id
+  type                     = "ingress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "TCP"
   source_security_group_id = aws_security_group.lambda_vpc.id
 }
 
@@ -308,7 +308,7 @@ resource "aws_db_instance" "postgresql" {
   #################################################
   identifier             = "${local.project}-rds-postgresql"
   engine                 = "postgres"
-  engine_version         = "16.3" # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.DBVersions.html
+  engine_version         = "16.3"        # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.DBVersions.html
   instance_class         = "db.t3.micro" # aws_db_instance.postgresql: Creation complete after 4m47s 
   vpc_security_group_ids = [aws_security_group.postgresql.id]
 
@@ -357,4 +357,72 @@ resource "aws_db_instance" "postgresql" {
   skip_final_snapshot      = true
   delete_automated_backups = false
   backup_retention_period  = 0
+}
+
+############################################################################
+## Step Functions
+## 本体はGUIで作成するので、ロールだけ用意
+## 作業証跡を残すため、sfn本体も一時的に定義
+############################################################################
+# Step Functions用のIAMロールを作成
+data "aws_iam_policy_document" "assume_sfn" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["states.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "sfn" {
+  name               = "${local.project}-sfn-role"
+  assume_role_policy = data.aws_iam_policy_document.assume_sfn.json
+}
+
+data "aws_iam_policy_document" "sfn" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    effect = "Allow"
+    actions = [
+      "lambda:InvokeFunction",
+    ]
+    resources = [
+      "${aws_lambda_function.redis.arn}:*",
+      "${aws_lambda_function.postgresql.arn}:*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "sfn" {
+  name        = "${local.project}-sfn-policy"
+  description = "IAM policy for Step Functions"
+  policy      = data.aws_iam_policy_document.sfn.json
+}
+
+resource "aws_iam_role_policy_attachment" "sfn" {
+  role       = aws_iam_role.sfn.name
+  policy_arn = aws_iam_policy.sfn.arn
+}
+
+resource "aws_sfn_state_machine" "sfn" {
+  name     = "${local.project}-sfn"
+  role_arn = aws_iam_role.sfn.arn
+
+  definition = templatefile("${path.module}/templates/sfn_templates.json", {
+    lambda_arn = aws_lambda_function.redis.arn,
+  })
 }
