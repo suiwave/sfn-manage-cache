@@ -2,7 +2,8 @@
 ## プロジェクト独自ignore
 #################################
 # lambda用に作成されたzipは無視する
-operate-redis.zip
+operate-redis_get.zip
+operate-redis_set.zip
 operate-postgresql.zip
 
 #################################

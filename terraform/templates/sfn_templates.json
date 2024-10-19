@@ -1,15 +1,40 @@
 {
-    "Comment": "A Step Functions workflow to handle null or string from Lambda",
-    "StartAt": "InvokeLambda",
+    "Comment": "A description of my state machine",
+    "StartAt": "Query Cache",
     "States": {
-        "InvokeLambda": {
+        "Query Cache": {
             "Type": "Task",
-            "Resource": "${lambda_arn}:$LATEST",
-            "Next": "CheckCacheIsNullOrString"
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "${lambda_redis_get_arn}:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Choice"
         },
-        "CheckCacheIsNullOrString": {
+        "Choice": {
             "Type": "Choice",
             "Choices": [
+                {
+                    "Not": {
+                        "Variable": "$.cache",
+                        "IsNull": true
+                    },
+                    "Next": "Cache Hit!"
+                },
                 {
                     "Or": [
                         {
@@ -21,24 +46,71 @@
                             "IsNull": true
                         }
                     ],
-                    "Next": "HandleNull"
-                },
-                {
-                    "Variable": "$.cache",
-                    "IsNull": false,
-                    "Next": "HandleNotNull"
+                    "Next": "Cache miss..."
                 }
             ]
         },
-        "HandleNull": {
+        "Cache Hit!": {
             "Type": "Pass",
-            "Result": "Received a Null",
-            "End": true
+            "Next": "Success",
+            "Parameters": {
+                "user.$": "$.cache"
+            }
         },
-        "HandleNotNull": {
+        "Cache miss...": {
             "Type": "Pass",
-            "Result": "Received String",
-            "End": true
+            "Next": "Query Origin"
+        },
+        "Query Origin": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "FunctionName": "${lambda_postgresql_arn}:$LATEST",
+                "Payload": {
+                    "email.$": "$$.Execution.Input.email"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Set Cache"
+        },
+        "Set Cache": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "Payload.$": "$",
+                "FunctionName": "${lambda_redis_set_arn}:$LATEST"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2
+                }
+            ],
+            "Next": "Success"
+        },
+        "Success": {
+            "Type": "Succeed"
         }
     }
 }

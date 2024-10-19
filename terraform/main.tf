@@ -35,13 +35,15 @@ locals {
   project = "stepfunction-manage-cache"
 
   lambda_base_path  = "../lambda"
+
+  lambda_redis_functions = ["get", "set"]
   lambda_redis      = "operate-redis"
   lambda_redis_path = "${local.lambda_base_path}/${local.lambda_redis}"
 
   lambda_postgresql      = "operate-postgresql"
   lambda_postgresql_path = "${local.lambda_base_path}/${local.lambda_postgresql}"
 
-  db_count = 0
+  db_count = 1
 
   db_username = "testuser"
   db_password = "password"
@@ -116,38 +118,46 @@ resource "aws_security_group_rule" "lambda_vpc" {
   protocol          = "-1"
   cidr_blocks       = [module.intra_vpc.vpc_cidr_block]
 }
-
 ############################################################################
 ## Lambda in VPC その１
 ## redisを操作するlambda関数
-############################################################################
-# ログ残す
+## GetとSet用に個別作成する
+## 忘れてた。特に理由がないなら性能の高いARM64にすべき。デフォはx86_64
+## https://qiita.com/hats_yaki/items/9d7e3522b1158f099645
+## 検証後気づいたので、今後気を付ける
+############################################################################# ログ残す
 resource "aws_cloudwatch_log_group" "redis" {
-  name              = "/aws/lambda/${local.lambda_redis}"
+  for_each = toset(local.lambda_redis_functions)
+
+  name              = "/aws/lambda/${local.lambda_redis}_${each.key}"
   retention_in_days = 14
 }
 
 # zipを作成
 data "archive_file" "redis" {
+  for_each = toset(local.lambda_redis_functions)
+
   type             = "zip"
   output_file_mode = "0666"
-  source_dir       = local.lambda_redis_path
-  output_path      = "${local.lambda_base_path}/${local.lambda_redis}.zip"
+  source_dir       = "${local.lambda_redis_path}_${each.key}"
+  output_path      = "${local.lambda_base_path}/${local.lambda_redis}_${each.key}.zip"
 }
 
 resource "aws_lambda_function" "redis" {
-  function_name = local.lambda_redis
+  for_each = toset(local.lambda_redis_functions)
+
+  function_name = "${local.lambda_redis}_${each.key}"
   role          = aws_iam_role.lambda_vpc.arn
 
   runtime  = "nodejs18.x"
-  filename = data.archive_file.redis.output_path
+  filename = data.archive_file.redis[each.key].output_path
   handler  = "index.handler"
 
-  source_code_hash = filebase64sha256(data.archive_file.redis.output_path)
+  source_code_hash = filebase64sha256(data.archive_file.redis[each.key].output_path)
 
   logging_config {
     log_format = "Text"
-    log_group  = aws_cloudwatch_log_group.redis.name
+    log_group  = aws_cloudwatch_log_group.redis[each.key].name
   }
 
   vpc_config {
@@ -225,7 +235,7 @@ resource "aws_lambda_function" "postgresql" {
 }
 
 ############################################################################
-## ElastieCache SSO Redis
+## ElastiCache SSO Redis
 ## valkeyはドキュメント少なそうだったので、とりあえずRedisを選択
 ## クラスタなどは不要なので最小構成で作成する
 ############################################################################
@@ -400,10 +410,10 @@ data "aws_iam_policy_document" "sfn" {
     actions = [
       "lambda:InvokeFunction",
     ]
-    resources = [
-      "${aws_lambda_function.redis.arn}:*",
-      "${aws_lambda_function.postgresql.arn}:*",
-    ]
+    resources = concat(
+      [for lambda in aws_lambda_function.redis : "${lambda.arn}:*"],
+      ["${aws_lambda_function.postgresql.arn}:*"]
+    )
   }
 }
 
@@ -423,6 +433,8 @@ resource "aws_sfn_state_machine" "sfn" {
   role_arn = aws_iam_role.sfn.arn
 
   definition = templatefile("${path.module}/templates/sfn_templates.json", {
-    lambda_arn = aws_lambda_function.redis.arn,
+    lambda_postgresql_arn = aws_lambda_function.postgresql.arn,
+    lambda_redis_get_arn = aws_lambda_function.redis["get"].arn,
+    lambda_redis_set_arn = aws_lambda_function.redis["set"].arn,
   })
 }
